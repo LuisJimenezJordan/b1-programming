@@ -21,7 +21,7 @@ if proceed == "YES":
             valid = False
 
         if option.islower():
-            problems.append ("Only contains uppercase letters")
+            problems.append ("Only contains lowercase letters")
             valid = False
        
         if not any(chr.isdigit() for chr in option):
