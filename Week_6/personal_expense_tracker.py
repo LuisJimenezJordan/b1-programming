@@ -17,10 +17,10 @@ while ans:
 
     if ans == '1':
         for i in range (1,6):
-            category = input(f"Enter Expense {i} category ")
-            amount = float(input(f"Enter Expense {i} amount "))
-            date = input(f"Enter Expense {i} date (YYYY-MM-DD) ")
-            expense_records.append([category, amount, date])
+            category = input(f"Enter Expense {i} category: ")
+            amount = float(input(f"Enter Expense {i} amount: "))
+            date = input(f"Enter Expense {i} date (YYYY-MM-DD): ")
+            expense_records.append((category, amount, date))  # Changed to tuple
 
         for category, amount, date in expense_records:
             unique_categories.add(category)
@@ -35,20 +35,24 @@ while ans:
 
         highest_expense_record = max(expense_records, key=lambda x: x[1]) if expense_records else None
         lowest_expense_record = min(expense_records, key=lambda x: x[1]) if expense_records else None
-        print ("===OVERALL SPENDING SUMMARY===")
-        print (f'Total Spending: ${total_spending}')
-        print (f'Average Expense: ${average_expense}')
-        print (f'Highest Expense: ${highest_expense}')
-        print (f'Lowest Expense: ${lowest_expense}')
+        
+        print("===OVERALL SPENDING SUMMARY===")
+        print(f'Total Spending: ${total_spending:.2f}')
+        print(f'Average Expense: ${average_expense:.2f}')
+        if highest_expense_record:
+            print(f'Highest Expense: ${highest_expense_record[1]:.2f} (Category: {highest_expense_record[0]}, Date: {highest_expense_record[2]})')
+        if lowest_expense_record:
+            print(f'Lowest Expense: ${lowest_expense_record[1]:.2f} (Category: {lowest_expense_record[0]}, Date: {lowest_expense_record[2]})')
 
     if ans == '3':
-       print(f'===UNIQUE SPENDING CATEGORIES===')
-       print(f'Unique Categories Spent on: {list(unique_categories)}')
+        print('===UNIQUE SPENDING CATEGORIES===')
+        print(f'Unique Categories Spent on: {unique_categories}')
+        print(f'Total unique categories: {len(unique_categories)}')
 
     if ans == '4':
-       print('===SPENDING BY CATEGORY===')
-       for category, total in category_totals.items():
-           print(f'Category: {category}, Total: ${total}')
+        print('===SPENDING BY CATEGORY===')
+        for category, total in category_totals.items():
+            print(f'{category}: ${total:.2f}')
 
     elif ans == '5':
         print("\nExiting...")

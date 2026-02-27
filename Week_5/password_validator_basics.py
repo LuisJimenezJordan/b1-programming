@@ -57,4 +57,4 @@ else:
     print("x PASSWORD IS WEAK - Please address failed requirements")
 print("=" * 50)
 
-#print(f"Suggestion: Your password could benefit from adding a random character such as '{random.choice(string.punctuation)}'")
+print(f"Suggestion: Your password could benefit from adding a random character such as '{random.choice(string.punctuation)}'")

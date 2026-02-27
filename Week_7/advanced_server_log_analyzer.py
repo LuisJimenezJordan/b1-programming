@@ -15,9 +15,10 @@ logging.basicConfig(
 class LogAnalyzer:
     def __init__(self, log_file):
         self.log_file = log_file
+        # Updated pattern to capture referrer and user agent
         self.log_pattern = re.compile(
-            r'(\S+) - - \[(.*?)] "(\S+) (\S+) \S+" (\d+) (\d+)'
-    )
+            r'(\S+) - - \[(.*?)\] "(\S+) (\S+) \S+" (\d+) (\d+) "([^"]*)" "([^"]*)"'
+        )
         # Statistics
         self.total_requests = 0
         self.unique_ips = set()
@@ -30,6 +31,7 @@ class LogAnalyzer:
         self.failed_logins = defaultdict(list)
         self.forbidden_access = []
         self.security_incidents = []
+        self.brute_force_detected = set()  # Track IPs already flagged
 
     def parse_log_line(self, line):
         """Parse a single log line."""
@@ -37,14 +39,16 @@ class LogAnalyzer:
         if not match:
             return None
 
-        ip, timestamp, method, url, status, size = match.groups()
+        ip, timestamp, method, url, status, size, referrer, user_agent = match.groups()
         return {
             'ip': ip,
             'timestamp': timestamp,
             'method': method,
             'url': url,
             'status': int(status),
-            'size': int(size)
+            'size': int(size),
+            'referrer': referrer,
+            'user_agent': user_agent
         }
 
     def analyze_security(self, entry):
@@ -53,18 +57,26 @@ class LogAnalyzer:
         # Track failed login attempts
         if entry['url'] == '/login' and entry['status'] == 401:
             self.failed_logins[entry['ip']].append(entry['timestamp'])
-
-        if len(self.failed_logins[entry['ip']]) >= 3:
-            incident = (f"Brute force attempt from {entry['ip']} - "f"{len(self.failed_logins[entry['ip']])} failed attempts"
-        )
-            self.security_incidents.append(incident)
-            logging.warning(incident)
+            
+            # Only log once when threshold is reached (exactly 3 attempts)
+            if len(self.failed_logins[entry['ip']]) == 3 and entry['ip'] not in self.brute_force_detected:
+                incident = (
+                    f"Brute force attempt from {entry['ip']} - "
+                    f"{len(self.failed_logins[entry['ip']])} failed attempts"
+                )
+                self.security_incidents.append(incident)
+                self.brute_force_detected.add(entry['ip'])
+                logging.warning(incident)
+            # Continue tracking if more attempts occur
+            elif len(self.failed_logins[entry['ip']]) > 3 and entry['ip'] in self.brute_force_detected:
+                # Update the incident count silently
+                pass
 
         # Track forbidden access
         if entry['status'] == 403:
             incident = (
                 f"Forbidden access attempt: {entry['ip']} -> {entry['url']}"
-        )
+            )
             self.forbidden_access.append(incident)
             self.security_incidents.append(incident)
             logging.warning(incident)
@@ -73,8 +85,28 @@ class LogAnalyzer:
         sql_patterns = ['union', 'select', 'drop', 'insert', '--', ';']
         url_lower = entry['url'].lower()
         if any(pattern in url_lower for pattern in sql_patterns):
-            incident = (f"Potential SQL injection: {entry['ip']} -> {entry['url']}"
-        )
+            incident = (
+                f"Potential SQL injection: {entry['ip']} -> {entry['url']}"
+            )
+            self.security_incidents.append(incident)
+            logging.warning(incident)
+
+        # Check for suspicious user agents
+        suspicious_agents = ['sqlmap', 'nikto', 'nmap', 'masscan', 'metasploit', 'burp', 'scanner']
+        user_agent_lower = entry['user_agent'].lower()
+        if any(agent in user_agent_lower for agent in suspicious_agents):
+            incident = (
+                f"Suspicious user agent detected: {entry['ip']} - {entry['user_agent']}"
+            )
+            self.security_incidents.append(incident)
+            logging.warning(incident)
+
+        # Check for unusual HTTP methods
+        standard_methods = ['GET', 'POST', 'HEAD', 'PUT', 'DELETE', 'OPTIONS', 'PATCH']
+        if entry['method'] not in standard_methods:
+            incident = (
+                f"Unusual HTTP method: {entry['method']} from {entry['ip']} to {entry['url']}"
+            )
             self.security_incidents.append(incident)
             logging.warning(incident)
 
@@ -98,7 +130,7 @@ class LogAnalyzer:
                         self.urls[entry['url']] += 1
                         self.status_codes[entry['status']] += 1
 
-                        # Track errors
+                        # Track errors (4xx and 5xx)
                         if entry['status'] >= 400:
                             self.errors.append(entry)
 
@@ -109,15 +141,14 @@ class LogAnalyzer:
                         logging.error(f"Line {line_num}: Error processing - {e}")
                         continue
 
-                logging.info(f"Analysis complete: {self.total_requests} requests processed"
-                )
+            logging.info(f"Analysis complete: {self.total_requests} requests processed")
 
         except FileNotFoundError:
-                logging.error(f"Log file '{self.log_file}' not found")
-                raise
+            logging.error(f"Log file '{self.log_file}' not found")
+            raise
         except PermissionError:
-                logging.error(f"Permission denied reading '{self.log_file}'")
-                raise
+            logging.error(f"Permission denied reading '{self.log_file}'")
+            raise
 
     def generate_summary_report(self):
         """Generate summary report."""
@@ -133,15 +164,15 @@ class LogAnalyzer:
 
                 f.write("HTTP Methods:\n")
                 for method, count in self.http_methods.most_common():
-                    f.write(f" {method}: {count}\n")
+                    f.write(f"  {method}: {count}\n")
 
                 f.write("\nMost Requested URLs:\n")
                 for url, count in self.urls.most_common(5):
-                    f.write(f" {url}: {count} requests\n")
+                    f.write(f"  {url}: {count} requests\n")
 
                 f.write("\nStatus Code Distribution:\n")
                 for status, count in sorted(self.status_codes.items()):
-                    f.write(f" {status}: {count}\n")
+                    f.write(f"  {status}: {count}\n")
 
                 f.write("\n" + "=" * 70 + "\n")
             logging.info("Summary report generated")
@@ -155,25 +186,33 @@ class LogAnalyzer:
                 f.write("=" * 70 + "\n")
                 f.write("SECURITY INCIDENTS REPORT\n")
                 f.write("=" * 70 + "\n\n")
-                f.write(f"Total Security Incidents: {len(self.security_incidents)}\n\n"
-                )
+                f.write(f"Total Security Incidents: {len(self.security_incidents)}\n\n")
 
                 f.write("BRUTE FORCE ATTEMPTS\n")
                 f.write("-" * 70 + "\n")
+                brute_force_count = 0
                 for ip, attempts in self.failed_logins.items():
                     if len(attempts) >= 3:
-                        f.write(f"IP: {ip} - {len(attempts)} failed login attempts\n"
-                        )
+                        f.write(f"IP: {ip} - {len(attempts)} failed login attempts\n")
+                        brute_force_count += 1
+                if brute_force_count == 0:
+                    f.write("No brute force attempts detected.\n")
 
                 f.write("\nFORBIDDEN ACCESS ATTEMPTS\n")
                 f.write("-" * 70 + "\n")
-                for incident in self.forbidden_access:
-                    f.write(f"{incident}\n")
+                if self.forbidden_access:
+                    for incident in self.forbidden_access:
+                        f.write(f"{incident}\n")
+                else:
+                    f.write("No forbidden access attempts detected.\n")
 
                 f.write("\nALL SECURITY INCIDENTS\n")
                 f.write("-" * 70 + "\n")
-                for incident in self.security_incidents:
-                    f.write(f"{incident}\n")
+                if self.security_incidents:
+                    for incident in self.security_incidents:
+                        f.write(f"{incident}\n")
+                else:
+                    f.write("No security incidents detected.\n")
 
                 f.write("\n" + "=" * 70 + "\n")
 
@@ -187,14 +226,20 @@ class LogAnalyzer:
         try:
             with open('error_log.txt', 'w') as f:
                 f.write("=" * 70 + "\n")
-                f.write("HTTP ERRORS LOG\n")
+                f.write("HTTP ERRORS LOG (4xx and 5xx Status Codes)\n")
                 f.write("=" * 70 + "\n\n")
 
                 f.write(f"Total Errors: {len(self.errors)}\n\n")
 
-                for error in self.errors:
-                    f.write(f"[{error['timestamp']}] {error['ip']} - "f"{error['method']} {error['url']} - "f"Status: {error['status']}\n"
-                )
+                if self.errors:
+                    for error in self.errors:
+                        f.write(
+                            f"[{error['timestamp']}] {error['ip']} - "
+                            f"{error['method']} {error['url']} - "
+                            f"Status: {error['status']}\n"
+                        )
+                else:
+                    f.write("No errors detected.\n")
 
                 f.write("\n" + "=" * 70 + "\n")
 
@@ -217,10 +262,10 @@ def main():
         print(f"Security incidents: {len(analyzer.security_incidents)}")
         print(f"Errors found: {len(analyzer.errors)}")
         print("\nReports generated:")
-        print(" - summary_report.txt")
-        print(" - security_incidents.txt")
-        print(" - error_log.txt")
-        print(" - analysis_audit.log")
+        print("  - summary_report.txt")
+        print("  - security_incidents.txt")
+        print("  - error_log.txt")
+        print("  - analysis_audit.log")
     except Exception as e:
         logging.critical(f"Analysis failed: {e}")
         print(f"Error: Analysis failed - {e}")

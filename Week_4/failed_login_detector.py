@@ -21,7 +21,7 @@ if proceed == "YES":
     for user in users:
         failed_count = login_attempts.count((user, "failed"))
         if failed_count >= 3:
-            print("ALERT:", user, "has", failed_count, "failed login attempts!")
+            print("ALERT: User", user, "has", failed_count, "failed login attempts!")
     print(f'Security check complete.')
 
 else: 

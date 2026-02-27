@@ -29,7 +29,10 @@ while ans:
             print(f'{index}. {song_title}, by {artist}, ({genre})')
     if ans == '3':
         print('===GENRE STATISTICS===')
+        for genre, count in genre_count.items():
+            print(f'{genre}: {count} songs')
         print(f'Most popular genre: {max(genre_count, key=genre_count.get)}')
+    
     elif ans == '4':
         print("\nExiting...")
         break
